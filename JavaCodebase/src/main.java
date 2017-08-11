@@ -1,80 +1,107 @@
-/*
- * Copyright (c) 2015 Google Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except
- * in compliance with the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
- */
-
 import com.google.api.client.auth.oauth2.Credential;
-import com.google.api.client.googleapis.json.GoogleJsonResponseException;
-import com.google.api.services.youtubereporting.YouTubeReporting;
-import com.google.api.services.youtubereporting.model.Job;
-import com.google.api.services.youtubereporting.model.ListReportTypesResponse;
-import com.google.api.services.youtubereporting.model.ReportType;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.jackson2.JacksonFactory;
+//import com.google.api.services.samples.youtube.cmdline.Auth;
+import com.google.api.services.youtube.YouTube;
+import com.google.api.services.youtube.model.Channel;
+import com.google.api.services.youtube.model.ChannelListResponse;
+import com.google.api.services.youtubeAnalytics.YouTubeAnalytics;
+import com.google.api.services.youtubeAnalytics.model.ResultTable;
+import com.google.api.services.youtubeAnalytics.model.ResultTable.ColumnHeaders;
 import com.google.common.collect.Lists;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * This sample creates a reporting job by:
+ * This example uses the YouTube Data and YouTube Analytics APIs to retrieve
+ * YouTube Analytics data. It also uses OAuth 2.0 for authorization.
  *
- * 1. Listing the available report types using the "reportTypes.list" method.
- * 2. Creating a reporting job using the "jobs.create" method.
- *
- * @author Ibrahim Ulukaya
+ * @author Christoph Schwab-Ganser and Jeremy Walker
  */
 public class main {
 
     /**
-     * Define a global instance of a YouTube Reporting object, which will be used to make
-     * YouTube Reporting API requests.
+     * Define a global instance of the HTTP transport.
      */
-    private static YouTubeReporting youtubeReporting;
-
+    private static final HttpTransport HTTP_TRANSPORT = new NetHttpTransport();
 
     /**
-     * Create a reporting job.
+     * Define a global instance of the JSON factory.
+     */
+    private static final JsonFactory JSON_FACTORY = new JacksonFactory();
+
+    /**
+     * Define a global instance of a Youtube object, which will be used
+     * to make YouTube Data API requests.
+     */
+    private static YouTube youtube;
+
+    /**
+     * Define a global instance of a YoutubeAnalytics object, which will be
+     * used to make YouTube Analytics API requests.
+     */
+    private static YouTubeAnalytics analytics;
+
+    /**
+     * This code authorizes the user, uses the YouTube Data API to retrieve
+     * information about the user's YouTube channel, and then fetches and
+     * prints statistics for the user's channel using the YouTube Analytics API.
      *
      * @param args command line args (not used).
      */
     public static void main(String[] args) {
 
-        /*
-         * This OAuth 2.0 access scope allows for read access to the YouTube Analytics monetary reports for
-         * authenticated user's account. Any request that retrieves earnings or ad performance metrics must
-         * use this scope.
-         */
-        List<String> scopes = Lists.newArrayList("https://www.googleapis.com/auth/yt-analytics-monetary.readonly");
+        // These scopes are required to access information about the
+        // authenticated user's YouTube channel as well as Analytics
+        // data for that channel.
+        List<String> scopes = Lists.newArrayList(
+                "https://www.googleapis.com/auth/yt-analytics.readonly",
+                "https://www.googleapis.com/auth/youtube.readonly"
+        );
 
         try {
             // Authorize the request.
-            Credential credential = Auth.authorize(scopes, "createreportingjob");
+            Credential credential = Auth.authorize(scopes, "analyticsreports");
 
-            // This object is used to make YouTube Reporting API requests.
-            youtubeReporting = new YouTubeReporting.Builder(Auth.HTTP_TRANSPORT, Auth.JSON_FACTORY, credential)
-                    .setApplicationName("youtube-cmdline-createreportingjob-sample").build();
+            // This object is used to make YouTube Data API requests.
+            youtube = new YouTube.Builder(HTTP_TRANSPORT, JSON_FACTORY, credential)
+                    .setApplicationName("youtube-analytics-api-report-example")
+                    .build();
 
-            // Prompt the user to specify the name of the job to be created.
-            String name = getNameFromUser();
+            // This object is used to make YouTube Analytics API requests.
+            analytics = new YouTubeAnalytics.Builder(HTTP_TRANSPORT, JSON_FACTORY, credential)
+                    .setApplicationName("youtube-analytics-api-report-example")
+                    .build();
 
-            if (listReportTypes()) {
-                createReportingJob(getReportTypeIdFromUser(), name);
+            // Construct a request to retrieve the current user's channel ID.
+            YouTube.Channels.List channelRequest = youtube.channels().list("id,snippet");
+            channelRequest.setMine(true);
+            channelRequest.setFields("items(id,snippet/title)");
+            ChannelListResponse channels = channelRequest.execute();
+
+            // List channels associated with the user.
+            List<Channel> listOfChannels = channels.getItems();
+
+            // The user's default channel is the first item in the list.
+            Channel defaultChannel = listOfChannels.get(0);
+            String channelId = "UC595wqznMGuY2mi6DKx-qnQ"; //hbr channeld id//defaultChannel.getId();
+
+            PrintStream writer = System.out;
+            if (channelId == null) {
+                writer.println("No channel found.");
+            } else {
+                writer.println("Default Channel: " + defaultChannel.getSnippet().getTitle() +
+                        " ( " + channelId + " )\n");
+
+                printData(writer, "Views Over Time.", executeViewsOverTimeQuery(analytics, channelId));
+                printData(writer, "Top Videos", executeTopVideosQuery(analytics, channelId));
+                printData(writer, "Demographics", executeDemographicsQuery(analytics, channelId));
             }
-        } catch (GoogleJsonResponseException e) {
-            System.err.println("GoogleJsonResponseException code: " + e.getDetails().getCode()
-                    + " : " + e.getDetails().getMessage());
-            e.printStackTrace();
-
         } catch (IOException e) {
             System.err.println("IOException: " + e.getMessage());
             e.printStackTrace();
@@ -85,89 +112,111 @@ public class main {
     }
 
     /**
-     * Lists report types. (reportTypes.listReportTypes)
-     * @return true if at least one report type exists
-     * @throws IOException
+     * Retrieve the views and unique viewers per day for the channel.
+     *
+     * @param analytics The service object used to access the Analytics API.
+     * @param id        The channel ID from which to retrieve data.
+     * @return The API response.
+     * @throws IOException if an API error occurred.
      */
-    private static boolean listReportTypes() throws IOException {
-        // Call the YouTube Reporting API's reportTypes.list method to retrieve report types.
-        ListReportTypesResponse reportTypesListResponse = youtubeReporting.reportTypes().list()
-                .execute();
-        List<ReportType> reportTypeList = reportTypesListResponse.getReportTypes();
+    private static ResultTable executeViewsOverTimeQuery(YouTubeAnalytics analytics,
+                                                         String id) throws IOException {
 
-        if (reportTypeList == null || reportTypeList.isEmpty()) {
-            System.out.println("No report types found.");
-            return false;
-        } else {
-            // Print information from the API response.
-            System.out.println("\n================== Report Types ==================\n");
-            for (ReportType reportType : reportTypeList) {
-                System.out.println("  - Id: " + reportType.getId());
-                System.out.println("  - Name: " + reportType.getName());
-                System.out.println("\n-------------------------------------------------------------\n");
-            }
-        }
-        return true;
+        return analytics.reports()
+                .query("channel==" + id,     // channel id
+                        "2017-08-01",         // Start date.
+                        "2017-08-10",         // End date.
+                        "audienceWatchRatio")      // Metrics.
+                //.setDimensions("day")
+                //.setSort("day")
+                .setDimensions("elapsedVideoTimeRatio")
+                .setFilters("video==5CKnqvq3O3s")
+                .execute();
     }
 
     /**
-     * Creates a reporting job. (jobs.create)
+     * Retrieve the channel's 10 most viewed videos in descending order.
      *
-     * @param reportTypeId Id of the job's report type.
-     * @param name name of the job.
-     * @throws IOException
+     * @param analytics the analytics service object used to access the API.
+     * @param id        the string id from which to retrieve data.
+     * @return the response from the API.
+     * @throws IOException if an API error occurred.
      */
-    private static void createReportingJob(String reportTypeId, String name)
-            throws IOException {
-        // Create a reporting job with a name and a report type id.
-        Job job = new Job();
-        job.setReportTypeId(reportTypeId);
-        job.setName(name);
+    private static ResultTable executeTopVideosQuery(YouTubeAnalytics analytics,
+                                                     String id) throws IOException {
 
-        // Call the YouTube Reporting API's jobs.create method to create a job.
-        Job createdJob = youtubeReporting.jobs().create(job).execute();
-
-        // Print information from the API response.
-        System.out.println("\n================== Created reporting job ==================\n");
-        System.out.println("  - ID: " + createdJob.getId());
-        System.out.println("  - Name: " + createdJob.getName());
-        System.out.println("  - Report Type Id: " + createdJob.getReportTypeId());
-        System.out.println("  - Create Time: " + createdJob.getCreateTime());
-        System.out.println("\n-------------------------------------------------------------\n");
+        return analytics.reports()
+                .query("channel==" + id,                          // channel id
+                        "2012-01-01",                              // Start date.
+                        "2012-08-14",                              // End date.
+                        "views,subscribersGained,subscribersLost") // Metrics.
+                .setDimensions("video")
+                .setSort("-views")
+                .setMaxResults(10)
+                .execute();
     }
 
-    /*
-     * Prompt the user to enter a name for the job. Then return the name.
+    /**
+     * Retrieve the demographics report for the channel.
+     *
+     * @param analytics the analytics service object used to access the API.
+     * @param id        the string id from which to retrieve data.
+     * @return the response from the API.
+     * @throws IOException if an API error occurred.
      */
-    private static String getNameFromUser() throws IOException {
+    private static ResultTable executeDemographicsQuery(YouTubeAnalytics analytics,
+                                                        String id) throws IOException {
+        return analytics.reports()
+                .query("channel==" + id,     // channel id
+                        "2007-01-01",         // Start date.
+                        "2012-08-14",         // End date.
+                        "viewerPercentage")   // Metrics.
+                .setDimensions("ageGroup,gender")
+                .setSort("-viewerPercentage")
+                .execute();
+    }
 
-        String name = "";
+    /**
+     * Prints the API response. The channel name is printed along with
+     * each column name and all the data in the rows.
+     *
+     * @param writer  stream to output to
+     * @param title   title of the report
+     * @param results data returned from the API.
+     */
+    private static void printData(PrintStream writer, String title, ResultTable results) {
+        writer.println("Report: " + title);
+        if (results.getRows() == null || results.getRows().isEmpty()) {
+            writer.println("No results Found.");
+        } else {
 
-        System.out.print("Please enter the name for the job [javaTestJob]: ");
-        BufferedReader bReader = new BufferedReader(new InputStreamReader(System.in));
-        name = bReader.readLine();
+            // Print column headers.
+            for (ColumnHeaders header : results.getColumnHeaders()) {
+                writer.printf("%30s", header.getName());
+            }
+            writer.println();
 
-        if (name.length() < 1) {
-            // If nothing is entered, defaults to "javaTestJob".
-            name = "javaTestJob";
+            // Print actual data.
+            for (List<Object> row : results.getRows()) {
+                for (int colNum = 0; colNum < results.getColumnHeaders().size(); colNum++) {
+                    ColumnHeaders header = results.getColumnHeaders().get(colNum);
+                    Object column = row.get(colNum);
+                    if ("INTEGER".equals(header.getUnknownKeys().get("dataType"))) {
+                        long l = ((BigDecimal) column).longValue();
+                        writer.printf("%30d", l);
+                    } else if ("FLOAT".equals(header.getUnknownKeys().get("dataType"))) {
+                        writer.printf("%30f", column);
+                    } else if ("STRING".equals(header.getUnknownKeys().get("dataType"))) {
+                        writer.printf("%30s", column);
+                    } else {
+                        // default output.
+                        writer.printf("%30s", column);
+                    }
+                }
+                writer.println();
+            }
+            writer.println();
         }
-
-        System.out.println("You chose " + name + " as the name for the job.");
-        return name;
     }
 
-    /*
-     * Prompt the user to enter a report type id for the job. Then return the id.
-     */
-    private static String getReportTypeIdFromUser() throws IOException {
-
-        String id = "";
-
-        System.out.print("Please enter the reportTypeId for the job: ");
-        BufferedReader bReader = new BufferedReader(new InputStreamReader(System.in));
-        id = bReader.readLine();
-
-        System.out.println("You chose " + id + " as the report type Id for the job.");
-        return id;
-    }
 }
