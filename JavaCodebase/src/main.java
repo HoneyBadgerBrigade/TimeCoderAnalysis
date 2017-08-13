@@ -12,11 +12,10 @@ import com.google.api.services.youtubeAnalytics.model.ResultTable;
 import com.google.api.services.youtubeAnalytics.model.ResultTable.ColumnHeaders;
 import com.google.common.collect.Lists;
 
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.PrintStream;
-import java.io.PrintWriter;
+import java.io.*;
+import java.io.FileInputStream;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -51,6 +50,12 @@ public class main {
 
     public static String COMMA = ",";
     public static String ENDL  = "\n";
+    public static String UNDERSCORE = "_";
+
+    private static List<String>  TimeCoderList = new ArrayList<String>();
+    private static List<String>  ShowId = new ArrayList<String>();
+    private static List<String>  ShowType = new ArrayList<String>();
+    private static List<Integer> ShowNumber = new ArrayList<Integer>();
 
     /**
      * This code authorizes the user, uses the YouTube Data API to retrieve
@@ -95,14 +100,33 @@ public class main {
             // The user's default channel is the first item in the list.
             Channel defaultChannel = listOfChannels.get(0);
             String channelId = "UC595wqznMGuY2mi6DKx-qnQ"; //hbr channeld id//defaultChannel.getId();
-            String videoId = "KBNlY-zUB4o";
+            String videoId = "";
 
-            PrintWriter writer = new PrintWriter(new FileOutputStream("testFileName.csv",false));
-            PrintStream writerToScreen = System.out;
-            ResultTable resultTable = executeAudienceWatchRationOverTime(analytics,channelId,videoId);
-            printToScreen(writerToScreen,"testing",resultTable);
-            printData(writer,resultTable);
-            writer.close();
+            //get all of the lines from the csv file
+            readShowListFile();
+
+            //loop over all the shows we want to analyze
+            for(int ii = 0; ii < ShowId.size(); ii++) {
+
+                PrintStream writerToScreen = System.out;
+                //get the video data
+                videoId = ShowId.get(ii);
+                ResultTable resultTable = executeAudienceWatchRationOverTime(analytics, channelId, videoId);
+                ResultTable viewResultTable = executeVideoViews(analytics,channelId,videoId);
+
+                Object column = viewResultTable.getRows().get(0).get(1);
+                String views = column.toString();
+
+                column = viewResultTable.getRows().get(0).get(0);
+                String publishedDate = column.toString();
+
+                //file name will be ShowType_ShowNumber_TimeCoder_Views_DateUpdloaded
+                String fileName = ShowType.get(ii) + UNDERSCORE +  ShowNumber.get(ii) + UNDERSCORE + TimeCoderList.get(ii) + UNDERSCORE + views + UNDERSCORE + publishedDate;
+                PrintWriter writer = new PrintWriter(new FileOutputStream("OutputFiles/" + fileName + ".csv", false));
+                printToScreen(writerToScreen, fileName, resultTable);
+                printData(writer, resultTable);
+                writer.close();
+            }
         } catch (IOException e) {
             System.err.println("IOException: " + e.getMessage());
             e.printStackTrace();
@@ -128,12 +152,22 @@ public class main {
                         "2015-08-01",         // Start date.
                         "2017-08-10",         // End date.
                         "audienceWatchRatio")      // Metrics.
-                //.setDimensions("day")
-                //.setSort("day")
                 .setDimensions("elapsedVideoTimeRatio")
-                //.setFilters("video==5CKnqvq3O3s")
                 .setFilters("video==" + videoId)
                 .execute();
+    }
+
+    private static ResultTable executeVideoViews(YouTubeAnalytics analytics, String channelId, String videoId) throws IOException {
+
+        return analytics.reports()
+                .query("channel==" + channelId,     // channel id
+                        "2015-08-01",         // Start date.
+                        "2017-08-10",         // End date.
+                        "views")      // Metrics.
+                .setFilters("video==" + videoId)
+                .setDimensions("day")
+                .execute();
+
     }
 
     /**
@@ -149,14 +183,7 @@ public class main {
         if (results.getRows() == null || results.getRows().isEmpty()) {
             writer.println("No results Found.");
         } else {
-
-            // Print column headers.
-            /*for (ColumnHeaders header : results.getColumnHeaders()) {
-                writer.printf("%30s", header.getName());
-            }
-            writer.println();*/
-
-            // Print actual data.
+            // Print data
 
             for (List<Object> row : results.getRows()) {
                 StringBuilder stringBuilder = new StringBuilder();
@@ -168,10 +195,8 @@ public class main {
                         stringBuilder.append(COMMA);
                     }
                 }
-                //stringBuilder.append(ENDL);
                 writer.println(stringBuilder.toString());
             }
-            //writer.println();
         }
     }
 
@@ -216,6 +241,55 @@ public class main {
                 writer.println();
             }
             writer.println();
+        }
+    }
+
+    private static void readShowListFile()
+    {
+        try {
+            BufferedReader bufferedReader = new BufferedReader(new FileReader("FilesToRead.csv"));
+
+            //read the header
+            String line = bufferedReader.readLine();
+            //now read the real lines
+            line = bufferedReader.readLine();
+
+            //full show name. timecoder, id, showtype, showNumber
+            while(line != null)
+            {
+                //find where comma is
+
+                //remove first column since we don't care about that
+                int idx = line.indexOf(COMMA);
+                line = line.substring(idx+1);
+
+                //the second column is the timecoder
+                idx = line.indexOf(COMMA);
+                TimeCoderList.add(line.substring(0,idx));
+                line = line.substring(idx+1);
+
+                //the third column is the Show Id
+                idx = line.indexOf(COMMA);
+                ShowId.add(line.substring(0,idx));
+                line = line.substring(idx+1);
+
+                //the fourth column is the Show Type
+                idx = line.indexOf(COMMA);
+                ShowType.add(line.substring(0,idx));
+                line = line.substring(idx+1);
+
+                //the fifth column is the Show Number
+                ShowNumber.add(Integer.parseInt(line));
+
+                line = bufferedReader.readLine();
+            }
+        } catch(FileNotFoundException e)
+        {
+
+        }
+        catch (IOException e)
+        {
+
         }
     }
 
