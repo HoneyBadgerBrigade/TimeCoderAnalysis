@@ -12,8 +12,10 @@ import com.google.api.services.youtubeAnalytics.model.ResultTable;
 import com.google.api.services.youtubeAnalytics.model.ResultTable.ColumnHeaders;
 import com.google.common.collect.Lists;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -46,6 +48,9 @@ public class main {
      * used to make YouTube Analytics API requests.
      */
     private static YouTubeAnalytics analytics;
+
+    public static String COMMA = ",";
+    public static String ENDL  = "\n";
 
     /**
      * This code authorizes the user, uses the YouTube Data API to retrieve
@@ -90,18 +95,14 @@ public class main {
             // The user's default channel is the first item in the list.
             Channel defaultChannel = listOfChannels.get(0);
             String channelId = "UC595wqznMGuY2mi6DKx-qnQ"; //hbr channeld id//defaultChannel.getId();
+            String videoId = "KBNlY-zUB4o";
 
-            PrintStream writer = System.out;
-            if (channelId == null) {
-                writer.println("No channel found.");
-            } else {
-                writer.println("Default Channel: " + defaultChannel.getSnippet().getTitle() +
-                        " ( " + channelId + " )\n");
-
-                printData(writer, "Views Over Time.", executeViewsOverTimeQuery(analytics, channelId));
-                printData(writer, "Top Videos", executeTopVideosQuery(analytics, channelId));
-                printData(writer, "Demographics", executeDemographicsQuery(analytics, channelId));
-            }
+            PrintWriter writer = new PrintWriter(new FileOutputStream("testFileName.csv",false));
+            PrintStream writerToScreen = System.out;
+            ResultTable resultTable = executeAudienceWatchRationOverTime(analytics,channelId,videoId);
+            printToScreen(writerToScreen,"testing",resultTable);
+            printData(writer,resultTable);
+            writer.close();
         } catch (IOException e) {
             System.err.println("IOException: " + e.getMessage());
             e.printStackTrace();
@@ -115,66 +116,65 @@ public class main {
      * Retrieve the views and unique viewers per day for the channel.
      *
      * @param analytics The service object used to access the Analytics API.
-     * @param id        The channel ID from which to retrieve data.
+     * @param channelId        The channel ID from which to retrieve data.
+     * @param videoId          The video ID from which to retrieve data.
      * @return The API response.
      * @throws IOException if an API error occurred.
      */
-    private static ResultTable executeViewsOverTimeQuery(YouTubeAnalytics analytics,
-                                                         String id) throws IOException {
+    private static ResultTable executeAudienceWatchRationOverTime(YouTubeAnalytics analytics, String channelId, String videoId) throws IOException {
 
         return analytics.reports()
-                .query("channel==" + id,     // channel id
-                        "2017-08-01",         // Start date.
+                .query("channel==" + channelId,     // channel id
+                        "2015-08-01",         // Start date.
                         "2017-08-10",         // End date.
                         "audienceWatchRatio")      // Metrics.
                 //.setDimensions("day")
                 //.setSort("day")
                 .setDimensions("elapsedVideoTimeRatio")
-                .setFilters("video==5CKnqvq3O3s")
+                //.setFilters("video==5CKnqvq3O3s")
+                .setFilters("video==" + videoId)
                 .execute();
     }
 
     /**
-     * Retrieve the channel's 10 most viewed videos in descending order.
+     * Prints the API response. The channel name is printed along with
+     * each column name and all the data in the rows.
      *
-     * @param analytics the analytics service object used to access the API.
-     * @param id        the string id from which to retrieve data.
-     * @return the response from the API.
-     * @throws IOException if an API error occurred.
+     * @param writer  stream to output to
+     * @param results data returned from the API.
      */
-    private static ResultTable executeTopVideosQuery(YouTubeAnalytics analytics,
-                                                     String id) throws IOException {
+    private static void printData(PrintWriter writer, ResultTable results) {
+        //print the header
+        writer.println("TimePercentage" + COMMA + "WatchPercentage");
+        if (results.getRows() == null || results.getRows().isEmpty()) {
+            writer.println("No results Found.");
+        } else {
 
-        return analytics.reports()
-                .query("channel==" + id,                          // channel id
-                        "2012-01-01",                              // Start date.
-                        "2012-08-14",                              // End date.
-                        "views,subscribersGained,subscribersLost") // Metrics.
-                .setDimensions("video")
-                .setSort("-views")
-                .setMaxResults(10)
-                .execute();
+            // Print column headers.
+            /*for (ColumnHeaders header : results.getColumnHeaders()) {
+                writer.printf("%30s", header.getName());
+            }
+            writer.println();*/
+
+            // Print actual data.
+
+            for (List<Object> row : results.getRows()) {
+                StringBuilder stringBuilder = new StringBuilder();
+                for (int colNum = 0; colNum < results.getColumnHeaders().size(); colNum++) {
+                    ColumnHeaders header = results.getColumnHeaders().get(colNum);
+                    Object column = row.get(colNum);
+                    stringBuilder.append(column);
+                    if(colNum != results.getColumnHeaders().size()-1) {
+                        stringBuilder.append(COMMA);
+                    }
+                }
+                //stringBuilder.append(ENDL);
+                writer.println(stringBuilder.toString());
+            }
+            //writer.println();
+        }
     }
 
-    /**
-     * Retrieve the demographics report for the channel.
-     *
-     * @param analytics the analytics service object used to access the API.
-     * @param id        the string id from which to retrieve data.
-     * @return the response from the API.
-     * @throws IOException if an API error occurred.
-     */
-    private static ResultTable executeDemographicsQuery(YouTubeAnalytics analytics,
-                                                        String id) throws IOException {
-        return analytics.reports()
-                .query("channel==" + id,     // channel id
-                        "2007-01-01",         // Start date.
-                        "2012-08-14",         // End date.
-                        "viewerPercentage")   // Metrics.
-                .setDimensions("ageGroup,gender")
-                .setSort("-viewerPercentage")
-                .execute();
-    }
 
     /**
      * Prints the API response. The channel name is printed along with
@@ -184,7 +184,7 @@ public class main {
      * @param title   title of the report
      * @param results data returned from the API.
      */
-    private static void printData(PrintStream writer, String title, ResultTable results) {
+    private static void printToScreen(PrintStream writer, String title, ResultTable results) {
         writer.println("Report: " + title);
         if (results.getRows() == null || results.getRows().isEmpty()) {
             writer.println("No results Found.");
