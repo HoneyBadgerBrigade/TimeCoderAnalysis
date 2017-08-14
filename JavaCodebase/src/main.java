@@ -55,7 +55,7 @@ public class main {
     private static List<String>  TimeCoderList = new ArrayList<String>();
     private static List<String>  ShowId = new ArrayList<String>();
     private static List<String>  ShowType = new ArrayList<String>();
-    private static List<Integer> ShowNumber = new ArrayList<Integer>();
+    private static List<String>  ShowNumber = new ArrayList<String>();
 
     /**
      * This code authorizes the user, uses the YouTube Data API to retrieve
@@ -279,7 +279,7 @@ public class main {
                 line = line.substring(idx+1);
 
                 //the fifth column is the Show Number
-                ShowNumber.add(Integer.parseInt(line));
+                ShowNumber.add(line);
 
                 line = bufferedReader.readLine();
             }
